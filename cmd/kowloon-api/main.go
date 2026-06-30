@@ -42,17 +42,17 @@ func env(key, fallback string) string {
 type unimplemented struct{}
 
 func (unimplemented) IndexResult(context.Context, kowloon.IndexResultRequest) (kowloon.IndexResultResponse, error) {
-	return kowloon.IndexResultResponse{}, httpapi.ErrNotImplemented
+	return kowloon.IndexResultResponse{}, kowloon.ErrNotImplemented
 }
 
 func (unimplemented) Search(context.Context, kowloon.SearchRequest) (kowloon.SearchResponse, error) {
-	return kowloon.SearchResponse{}, httpapi.ErrNotImplemented
+	return kowloon.SearchResponse{}, kowloon.ErrNotImplemented
 }
 
 func (unimplemented) ResolveMerchant(context.Context, kowloon.ResolveMerchantRequest) (kowloon.ResolveMerchantResponse, error) {
-	return kowloon.ResolveMerchantResponse{}, httpapi.ErrNotImplemented
+	return kowloon.ResolveMerchantResponse{}, kowloon.ErrNotImplemented
 }
 
 func (unimplemented) DeleteJob(context.Context, string) error {
-	return httpapi.ErrNotImplemented
+	return kowloon.ErrNotImplemented
 }
