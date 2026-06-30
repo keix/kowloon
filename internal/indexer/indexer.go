@@ -63,6 +63,15 @@ func (i *Indexer) IndexResult(ctx context.Context, req kowloon.IndexResultReques
 		return kowloon.IndexResultResponse{}, fmt.Errorf("schema convert: %w", err)
 	}
 
+	// job_id is the pivot DeleteByJob runs against on both backends —
+	// enforce it at this layer so future schemas cannot forget to set it.
+	for idx := range records {
+		if records[idx].Metadata == nil {
+			records[idx].Metadata = map[string]string{}
+		}
+		records[idx].Metadata["job_id"] = req.JobID
+	}
+
 	collection := collectionFor(req.ResultType)
 	indexJobID := fmt.Sprintf("kidx_%d", i.Now().UnixNano())
 
