@@ -100,6 +100,26 @@ func TestConvert_BadJSON(t *testing.T) {
 	}
 }
 
+func TestYearMonth(t *testing.T) {
+	cases := map[string]string{
+		"2026-06-12": "2026-06",
+		"2026/06/12": "2026-06",
+		"26/06/12":   "2026-06",
+		"26/06/22":   "2026-06",
+		"":           "",
+		"26":         "",
+		"random":     "",
+		"2026年6月12日": "",
+	}
+	for date, want := range cases {
+		t.Run(date, func(t *testing.T) {
+			if got := yearMonth(date); got != want {
+				t.Errorf("yearMonth(%q)=%q, want %q", date, got, want)
+			}
+		})
+	}
+}
+
 func TestConvert_EmptyTransactions(t *testing.T) {
 	raw := []byte(`{"text":"","document_type":"other","transactions":[]}`)
 	records, err := (Schema{}).Convert(raw, kowloon.IndexResultRequest{JobID: "j"})

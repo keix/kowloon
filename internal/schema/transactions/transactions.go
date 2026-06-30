@@ -126,19 +126,21 @@ func stringField(fields map[string]any, keys ...string) string {
 	return ""
 }
 
-// yearMonth extracts "YYYY-MM" from the two date formats Lady Glass
-// commonly emits ("2026-06-12" and "2026/06/12"). Unrecognised formats
-// return "" — missing metadata is preferred over a guess, since
-// downstream filters key on this directly.
+// yearMonth extracts "YYYY-MM" from the date formats Lady Glass
+// commonly emits across issuers: ISO ("2026-06-12"), Japanese slash
+// ("2026/06/12"), and the credit-card-statement two-digit-year form
+// ("26/06/12"). Two-digit years are assumed to be 20YY — Lady Glass's
+// data horizon does not span centuries. Unrecognised formats return
+// "" — missing metadata is preferred over a guess, since downstream
+// filters key on this directly.
 func yearMonth(date string) string {
-	if len(date) < 7 {
-		return ""
-	}
-	switch date[4] {
-	case '-':
+	switch {
+	case len(date) >= 7 && date[4] == '-':
 		return date[:7]
-	case '/':
+	case len(date) >= 7 && date[4] == '/':
 		return date[:4] + "-" + date[5:7]
+	case len(date) >= 8 && date[2] == '/' && date[5] == '/':
+		return "20" + date[:2] + "-" + date[3:5]
 	}
 	return ""
 }
