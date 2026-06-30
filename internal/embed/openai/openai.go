@@ -23,9 +23,19 @@ import (
 
 const (
 	DefaultModel    = "text-embedding-3-small"
-	DefaultModelDim = 1536
 	DefaultEndpoint = "https://api.openai.com/v1/embeddings"
 )
+
+// defaultDimFor maps each supported OpenAI embedding model to its
+// native vector dimensionality. Switching KOWLOON_EMBEDDING_MODEL
+// without a matching KOWLOON_EMBEDDING_DIM would otherwise upsert
+// 3072-dim vectors into a 1536-dim Milvus collection (or the inverse)
+// — silently broken until the first search.
+var defaultDimFor = map[string]int{
+	"text-embedding-3-small": 1536,
+	"text-embedding-3-large": 3072,
+	"text-embedding-ada-002": 1536,
+}
 
 type Config struct {
 	// APIKey is the OpenAI API key. The caller (typically main.go)
@@ -33,10 +43,10 @@ type Config struct {
 	// constructing the Provider — New does not check.
 	APIKey string
 
-	// Model defaults to DefaultModel. When overriding, Dim must
-	// also be set to match the model's native dimensionality (or
-	// the value passed in the `dimensions` request parameter once
-	// that surface lands).
+	// Model defaults to DefaultModel. Dim is derived from Model via
+	// defaultDimFor when left zero; set Dim explicitly only when
+	// using a model unknown to that table or when exercising the
+	// OpenAI `dimensions` request parameter (reduced-dim variants).
 	Model string
 	Dim   int
 
@@ -62,7 +72,7 @@ func New(c Config) *Provider {
 		c.Model = DefaultModel
 	}
 	if c.Dim == 0 {
-		c.Dim = DefaultModelDim
+		c.Dim = defaultDimFor[c.Model]
 	}
 	if c.Endpoint == "" {
 		c.Endpoint = DefaultEndpoint

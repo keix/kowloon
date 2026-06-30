@@ -100,14 +100,30 @@ func TestModelDim_Defaults(t *testing.T) {
 	if p.Model() != DefaultModel {
 		t.Errorf("Model()=%q, want %q", p.Model(), DefaultModel)
 	}
-	if p.Dim() != DefaultModelDim {
-		t.Errorf("Dim()=%d, want %d", p.Dim(), DefaultModelDim)
+	if p.Dim() != 1536 {
+		t.Errorf("Dim()=%d, want 1536", p.Dim())
 	}
 }
 
-func TestModelDim_Override(t *testing.T) {
-	p := New(Config{APIKey: "k", Model: "text-embedding-3-large", Dim: 3072})
-	if p.Model() != "text-embedding-3-large" || p.Dim() != 3072 {
-		t.Errorf("Model()=%q Dim()=%d", p.Model(), p.Dim())
+func TestModelDim_InferredFromModel(t *testing.T) {
+	cases := map[string]int{
+		"text-embedding-3-small": 1536,
+		"text-embedding-3-large": 3072,
+		"text-embedding-ada-002": 1536,
+	}
+	for model, wantDim := range cases {
+		t.Run(model, func(t *testing.T) {
+			p := New(Config{APIKey: "k", Model: model})
+			if p.Dim() != wantDim {
+				t.Errorf("%s: Dim()=%d, want %d", model, p.Dim(), wantDim)
+			}
+		})
+	}
+}
+
+func TestModelDim_ExplicitOverride(t *testing.T) {
+	p := New(Config{APIKey: "k", Model: "text-embedding-3-large", Dim: 256})
+	if p.Dim() != 256 {
+		t.Errorf("explicit Dim=256, got %d", p.Dim())
 	}
 }
