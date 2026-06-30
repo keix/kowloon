@@ -19,10 +19,9 @@ On the read side, the user's query goes to Lady Glass's query API — Kowloon's 
 
 ```mermaid
 flowchart LR
-    subgraph IN["ingestion"]
-        direction TB
-        LG([Lady Glass chain])
-    end
+    LG([Lady Glass chain])
+    LGQ([Lady Glass query API])
+    Admin([admin / debug])
 
     subgraph K["Kowloon"]
         direction TB
@@ -41,12 +40,6 @@ flowchart LR
         IDX --> BE
     end
 
-    subgraph QR["query"]
-        direction TB
-        U([user]) --> LGQ([Lady Glass query API])
-    end
-
-    Admin([admin / debug])
     S3[(S3 — permanent results)]
     OAI([OpenAI Embeddings])
     MIL[(Milvus — vector store)]
@@ -54,7 +47,7 @@ flowchart LR
     LG -->|archive-result stage| S3
     LG -->|index-kowloon stage| API
     LGQ -->|semantic candidates| API
-    LGQ -->|read normalized result| S3
+    LGQ -->|read&nbsp;normalized&nbsp;result| S3
     Admin -.-> API
 
     SRC -. read result_uri .-> S3
@@ -74,3 +67,19 @@ flowchart LR
 | backend | vector store (in-memory in v0, Milvus standalone in v1)             |
 
 Kowloon never writes to the permanent bucket. Lady Glass owns the source of truth; Kowloon's index is rebuildable from it. Kowloon returns candidates; Lady Glass returns answers.
+
+## API
+
+Kowloon exposes five HTTP endpoints. v0 is unauthenticated; an `X-Api-Key` header will be added before deploy. See [`types.go`](types.go) for the full request and response contract.
+
+```text
+POST   /v1/index-result          ingest an archived S3 result; returns the indexed count
+POST   /v1/search                semantic candidates with metadata filters
+POST   /v1/resolve/merchant      canonical merchant + evidence for a raw string
+DELETE /v1/jobs/{job_id}         drop every record indexed under a job
+GET    /healthz                  liveness probe
+```
+
+`/v1/index-result` is the primary entry point — Lady Glass's `index-kowloon` stage calls it with the archived URI and Kowloon takes care of fetching, schema conversion, embedding, and upsert.
+
+`/v1/search` and `/v1/resolve/merchant` are the retrieval primitives Lady Glass calls during query composition; direct callers are admin or debug only. `DELETE /v1/jobs/{job_id}` is the re-index recovery handle, used when an embedding model swap requires dropping a batch.
