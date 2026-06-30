@@ -7,6 +7,12 @@
 # 2025 OSS direction at MinIO makes it a less pleasant default. The S3 port
 # is mapped to 9000 so Milvus's MINIO_* env vars stay at stock values.
 # Milvus is bound to 127.0.0.1:19530 to match the production network shape.
+#
+# SeaweedFS demands `-s3.config` to validate signed v4 requests — Milvus
+# always signs — so the inline IAM config below registers the
+# minioadmin/minioadmin pair Milvus sends by default. Without it Milvus
+# panics on the first segment flush with "Signed request requires setting
+# up SeaweedFS S3 authentication".
 
 services:
   etcd:
@@ -26,9 +32,17 @@ services:
 
   seaweedfs:
     image: chrislusf/seaweedfs:3.71
-    command: server -s3 -s3.port=9000 -dir=/data
+    command:
+      - server
+      - -s3
+      - -s3.port=9000
+      - -s3.config=/etc/seaweedfs/s3.json
+      - -dir=/data
     volumes:
       - seaweedfs-data:/data
+    configs:
+      - source: seaweedfs_iam
+        target: /etc/seaweedfs/s3.json
 
   milvus:
     image: milvusdb/milvus:v2.4.10
@@ -48,3 +62,18 @@ volumes:
   etcd-data:
   seaweedfs-data:
   milvus-data:
+
+configs:
+  seaweedfs_iam:
+    content: |
+      {
+        "identities": [
+          {
+            "name": "milvus",
+            "credentials": [
+              {"accessKey": "minioadmin", "secretKey": "minioadmin"}
+            ],
+            "actions": ["Admin"]
+          }
+        ]
+      }
