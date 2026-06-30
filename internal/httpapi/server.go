@@ -26,21 +26,6 @@ type Service interface {
 	DeleteJob(ctx context.Context, jobID string) error
 }
 
-// ErrNotImplemented is the sentinel a stub Service returns to signal
-// "the route is wired but no implementation is attached yet". The HTTP
-// layer maps it to 501 so stubbed builds are distinguishable from
-// real 5xx failures.
-var ErrNotImplemented = errors.New("kowloon: not implemented")
-
-// ErrBadRequest wraps validation failures the Service layer detects
-// (e.g. unknown ResultType, malformed source URI). The HTTP layer maps
-// it to 400 so the indexer does not need to know about HTTP status
-// codes.
-type ErrBadRequest struct{ Err error }
-
-func (e ErrBadRequest) Error() string { return e.Err.Error() }
-func (e ErrBadRequest) Unwrap() error { return e.Err }
-
 type Server struct {
 	svc Service
 }
@@ -170,11 +155,11 @@ func writeError(w http.ResponseWriter, status int, err error) {
 // The mapping is intentionally narrow: only the two well-known
 // sentinels get special handling, everything else surfaces as 500.
 // Callers below the Service interface should wrap user-input failures
-// in ErrBadRequest so they reach 400 here rather than 500.
+// in kowloon.ErrBadRequest so they reach 400 here rather than 500.
 func writeServiceError(w http.ResponseWriter, err error) {
-	var badRequest ErrBadRequest
+	var badRequest kowloon.ErrBadRequest
 	switch {
-	case errors.Is(err, ErrNotImplemented):
+	case errors.Is(err, kowloon.ErrNotImplemented):
 		writeError(w, http.StatusNotImplemented, err)
 	case errors.As(err, &badRequest):
 		writeError(w, http.StatusBadRequest, err)

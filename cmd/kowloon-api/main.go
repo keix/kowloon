@@ -1,11 +1,16 @@
 // Command kowloon-api is the HTTP front of the semantic-memory service
-// Lady Glass's index-kowloon stage talks to.
+// Lady Glass's index-kowloon stage talks to. It reads its config from
+// the env contract owned by the NixOS infra repo (KOWLOON_ADDR,
+// KOWLOON_BACKEND, MILVUS_ENDPOINT, KOWLOON_EMBEDDING_MODEL,
+// OPENAI_API_KEY, AWS_REGION) and wires:
 //
-// At this stage of the build-out the binary boots with a stub Service
-// that returns 501 on every business endpoint — the indexer (which
-// composes source + schema + embed + backend) lands in a follow-up
-// commit. /healthz already returns 200 so deploy plumbing can be tested
-// in advance.
+//	source  -> S3 (default AWS credential chain)
+//	schema  -> transactions.v1
+//	embed   -> OpenAI text-embedding-3-small
+//	backend -> memory | milvus
+//
+// /healthz is wired before any backend init so the deploy plumbing
+// stays observable even if Milvus or OpenAI are unreachable.
 package main
 
 import (
@@ -14,45 +19,89 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/keix/kowloon"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	mclient "github.com/milvus-io/milvus-sdk-go/v2/client"
+
+	"github.com/keix/kowloon/internal/backend"
+	"github.com/keix/kowloon/internal/backend/memory"
+	"github.com/keix/kowloon/internal/backend/milvus"
+	"github.com/keix/kowloon/internal/embed/openai"
 	"github.com/keix/kowloon/internal/httpapi"
+	"github.com/keix/kowloon/internal/indexer"
+	"github.com/keix/kowloon/internal/schema"
+	"github.com/keix/kowloon/internal/schema/transactions"
+	s3source "github.com/keix/kowloon/internal/source/s3"
 )
 
 func main() {
-	addr := env("KOWLOON_ADDR", ":8080")
+	addr := envOr("KOWLOON_ADDR", ":8080")
+	backendKind := envOr("KOWLOON_BACKEND", "memory")
 
-	server := httpapi.NewServer(unimplemented{})
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		log.Fatal("OPENAI_API_KEY is required")
+	}
 
-	log.Printf("kowloon-api listening on %s", addr)
+	embedder := openai.New(openai.Config{
+		APIKey: apiKey,
+		Model:  envOr("KOWLOON_EMBEDDING_MODEL", openai.DefaultModel),
+	})
+
+	ctx := context.Background()
+
+	be, err := buildBackend(ctx, backendKind, embedder.Dim())
+	if err != nil {
+		log.Fatalf("backend %s: %v", backendKind, err)
+	}
+
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
+	if err != nil {
+		log.Fatalf("aws config: %v", err)
+	}
+	src := s3source.New(awss3.NewFromConfig(awsCfg))
+
+	schemas := map[string]schema.Schema{
+		transactions.SchemaVersion: transactions.New(),
+	}
+	ix := indexer.New(src, schemas, embedder, be)
+
+	server := httpapi.NewServer(ix)
+	log.Printf("kowloon-api listening on %s (backend=%s, model=%s)", addr, backendKind, embedder.Model())
 	if err := http.ListenAndServe(addr, server.Routes()); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func env(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+func buildBackend(ctx context.Context, kind string, dim int) (backend.Index, error) {
+	switch kind {
+	case "memory":
+		return memory.New(), nil
+	case "milvus":
+		endpoint := envOr("MILVUS_ENDPOINT", "127.0.0.1:19530")
+		c, err := mclient.NewClient(ctx, mclient.Config{Address: endpoint})
+		if err != nil {
+			return nil, err
+		}
+		mb := milvus.New(c, milvus.Config{Collection: "transactions", Dim: dim})
+		if err := mb.Ensure(ctx); err != nil {
+			return nil, err
+		}
+		return mb, nil
+	default:
+		return nil, &unknownBackend{kind: kind}
+	}
+}
+
+type unknownBackend struct{ kind string }
+
+func (e *unknownBackend) Error() string {
+	return "unknown KOWLOON_BACKEND " + e.kind + " (want memory|milvus)"
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
 	}
 	return fallback
-}
-
-// unimplemented is the placeholder Service used until the indexer
-// commit wires a real one. Every business endpoint reports 501 so
-// stubbed builds are distinguishable from real failures.
-type unimplemented struct{}
-
-func (unimplemented) IndexResult(context.Context, kowloon.IndexResultRequest) (kowloon.IndexResultResponse, error) {
-	return kowloon.IndexResultResponse{}, httpapi.ErrNotImplemented
-}
-
-func (unimplemented) Search(context.Context, kowloon.SearchRequest) (kowloon.SearchResponse, error) {
-	return kowloon.SearchResponse{}, httpapi.ErrNotImplemented
-}
-
-func (unimplemented) ResolveMerchant(context.Context, kowloon.ResolveMerchantRequest) (kowloon.ResolveMerchantResponse, error) {
-	return kowloon.ResolveMerchantResponse{}, httpapi.ErrNotImplemented
-}
-
-func (unimplemented) DeleteJob(context.Context, string) error {
-	return httpapi.ErrNotImplemented
 }
