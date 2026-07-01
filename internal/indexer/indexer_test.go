@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/keix/kowloon"
+	"github.com/keix/kowloon/internal/embed"
+	idemmem "github.com/keix/kowloon/internal/idempotency/memory"
 	"github.com/keix/kowloon/internal/schema"
 )
 
@@ -55,9 +57,9 @@ type fakeEmbedder struct {
 	err   error
 }
 
-func (f *fakeEmbedder) Embed(_ context.Context, texts []string) ([][]float32, error) {
+func (f *fakeEmbedder) Embed(_ context.Context, texts []string) (embed.Result, error) {
 	if f.err != nil {
-		return nil, f.err
+		return embed.Result{}, f.err
 	}
 	f.calls = append(f.calls, append([]string(nil), texts...))
 	out := make([][]float32, len(texts))
@@ -68,7 +70,7 @@ func (f *fakeEmbedder) Embed(_ context.Context, texts []string) ([][]float32, er
 		}
 		out[i] = v
 	}
-	return out, nil
+	return embed.Result{Vectors: out}, nil
 }
 
 func (f *fakeEmbedder) Model() string { return "fake-test" }
@@ -271,6 +273,111 @@ func TestDeleteJob(t *testing.T) {
 	}
 	if len(be.delJobs) != 1 || be.delJobs[0] != "job_x" {
 		t.Errorf("delJobs=%v", be.delJobs)
+	}
+}
+
+func TestIdempotency_SecondPostSkipsAllWork(t *testing.T) {
+	src := &fakeSource{data: map[string][]byte{
+		"s3://b/k.json": []byte(`["row1","row2","row3"]`),
+	}}
+	emb := &fakeEmbedder{dim: 4}
+	be := &fakeBackend{}
+	ix := newTestIndexer(src, emb, be)
+	ix.Idempotency = idemmem.New()
+
+	req := kowloon.IndexResultRequest{
+		JobID:         "job_42",
+		TenantID:      "keix",
+		ResultURI:     "s3://b/k.json",
+		ResultType:    kowloon.ResultTypeTransactions,
+		SchemaVersion: "transactions.v1",
+	}
+
+	first, err := ix.IndexResult(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.VectorCount != 3 {
+		t.Errorf("first VectorCount=%d, want 3", first.VectorCount)
+	}
+	if len(be.upserts) != 1 || len(emb.calls) != 1 {
+		t.Fatalf("first run should embed+upsert once, embed_calls=%d upserts=%d", len(emb.calls), len(be.upserts))
+	}
+
+	second, err := ix.IndexResult(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(emb.calls) != 1 {
+		t.Errorf("second run should not embed, embed_calls=%d", len(emb.calls))
+	}
+	if len(be.upserts) != 1 {
+		t.Errorf("second run should not upsert, upserts=%d", len(be.upserts))
+	}
+	if second.IndexJobID != first.IndexJobID {
+		t.Errorf("second IndexJobID=%q, want same as first %q", second.IndexJobID, first.IndexJobID)
+	}
+	if second.VectorCount != first.VectorCount {
+		t.Errorf("second VectorCount=%d, want %d", second.VectorCount, first.VectorCount)
+	}
+}
+
+func TestIdempotency_DifferentContentIsFreshRun(t *testing.T) {
+	src := &fakeSource{data: map[string][]byte{
+		"s3://b/k.json": []byte(`["row1","row2"]`),
+	}}
+	emb := &fakeEmbedder{dim: 4}
+	be := &fakeBackend{}
+	ix := newTestIndexer(src, emb, be)
+	ix.Idempotency = idemmem.New()
+
+	req := kowloon.IndexResultRequest{
+		JobID:         "job_42",
+		TenantID:      "keix",
+		ResultURI:     "s3://b/k.json",
+		ResultType:    kowloon.ResultTypeTransactions,
+		SchemaVersion: "transactions.v1",
+	}
+
+	if _, err := ix.IndexResult(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+
+	// Same URI but different content — content_hash catches this.
+	src.data["s3://b/k.json"] = []byte(`["row1","row2","row3"]`)
+
+	if _, err := ix.IndexResult(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if len(emb.calls) != 2 {
+		t.Errorf("changed content should trigger fresh embed, embed_calls=%d, want 2", len(emb.calls))
+	}
+}
+
+func TestIdempotency_Nil_AlwaysReRuns(t *testing.T) {
+	src := &fakeSource{data: map[string][]byte{
+		"s3://b/k.json": []byte(`["row1","row2"]`),
+	}}
+	emb := &fakeEmbedder{dim: 4}
+	be := &fakeBackend{}
+	ix := newTestIndexer(src, emb, be) // Idempotency stays nil
+
+	req := kowloon.IndexResultRequest{
+		JobID:         "job_42",
+		TenantID:      "keix",
+		ResultURI:     "s3://b/k.json",
+		ResultType:    kowloon.ResultTypeTransactions,
+		SchemaVersion: "transactions.v1",
+	}
+
+	if _, err := ix.IndexResult(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.IndexResult(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if len(emb.calls) != 2 {
+		t.Errorf("without idempotency, both runs should embed, embed_calls=%d, want 2", len(emb.calls))
 	}
 }
 
