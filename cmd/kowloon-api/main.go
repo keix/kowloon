@@ -3,8 +3,9 @@
 // the env contract owned by the NixOS infra repo:
 //
 //	KOWLOON_ADDR                 listen address (default :8080)
-//	KOWLOON_BACKEND              memory | milvus
-//	MILVUS_ENDPOINT              gRPC address (default 127.0.0.1:19530)
+//	KOWLOON_BACKEND              memory | milvus | qdrant
+//	KOWLOON_VECTOR_ENDPOINT      milvus host:port or qdrant base URL
+//	KOWLOON_VECTOR_API_KEY       qdrant api key (unused for milvus)
 //	KOWLOON_EMBEDDING_MODEL      OpenAI embedding model name
 //	OPENAI_API_KEY               required
 //	AWS_REGION                   used for S3 and DDB
@@ -14,7 +15,7 @@
 //	KOWLOON_IDEMPOTENCY_TABLE    DDB table when idempotency=dynamodb
 //
 // /healthz is wired before any backend init so the deploy plumbing
-// stays observable even if Milvus or OpenAI are unreachable.
+// stays observable even if the vector backend or OpenAI are unreachable.
 package main
 
 import (
@@ -32,6 +33,7 @@ import (
 	"github.com/keix/kowloon/internal/backend"
 	backendmemory "github.com/keix/kowloon/internal/backend/memory"
 	"github.com/keix/kowloon/internal/backend/milvus"
+	"github.com/keix/kowloon/internal/backend/qdrant"
 	"github.com/keix/kowloon/internal/embed"
 	embedcache "github.com/keix/kowloon/internal/embed/cache"
 	cacheddb "github.com/keix/kowloon/internal/embed/cache/dynamodb"
@@ -138,7 +140,7 @@ func buildBackend(ctx context.Context, kind string, dim int) (backend.Index, err
 	case "memory":
 		return backendmemory.New(), nil
 	case "milvus":
-		endpoint := envOr("MILVUS_ENDPOINT", "127.0.0.1:19530")
+		endpoint := envOr("KOWLOON_VECTOR_ENDPOINT", "127.0.0.1:19530")
 		c, err := mclient.NewClient(ctx, mclient.Config{Address: endpoint})
 		if err != nil {
 			return nil, err
@@ -148,6 +150,21 @@ func buildBackend(ctx context.Context, kind string, dim int) (backend.Index, err
 			return nil, err
 		}
 		return mb, nil
+	case "qdrant":
+		endpoint := os.Getenv("KOWLOON_VECTOR_ENDPOINT")
+		if endpoint == "" {
+			return nil, &unknownBackend{kind: "qdrant: KOWLOON_VECTOR_ENDPOINT is required"}
+		}
+		qb := qdrant.New(qdrant.Config{
+			Endpoint:   endpoint,
+			APIKey:     os.Getenv("KOWLOON_VECTOR_API_KEY"),
+			Collection: "transactions",
+			Dim:        dim,
+		})
+		if err := qb.Ensure(ctx); err != nil {
+			return nil, err
+		}
+		return qb, nil
 	default:
 		return nil, &unknownBackend{kind: kind}
 	}
@@ -156,7 +173,7 @@ func buildBackend(ctx context.Context, kind string, dim int) (backend.Index, err
 type unknownBackend struct{ kind string }
 
 func (e *unknownBackend) Error() string {
-	return "unknown KOWLOON_BACKEND " + e.kind + " (want memory|milvus)"
+	return "unknown KOWLOON_BACKEND " + e.kind + " (want memory|milvus|qdrant)"
 }
 
 func envOr(key, fallback string) string {
