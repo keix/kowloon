@@ -5,7 +5,7 @@ Lady Glass reads documents and preserves their results. Kowloon turns those resu
 
 ## Why Kowloon
 
-Lady Glass was from there. She read documents because I could not.
+Lady Glass was from there. She read documents I could not.
 
 Kowloon is the landscape of her memory.
 
@@ -57,14 +57,16 @@ flowchart LR
     style K fill:none,stroke:#888,stroke-width:1.5px
 ```
 
-| Layer   | Owns                                                                |
-| ------- | ------------------------------------------------------------------- |
-| httpapi | routing, JSON (un)marshal, status-code mapping                      |
-| indexer | source → schema → embed → backend pipeline                          |
-| source  | reads archived results (S3 in v0)                                   |
-| schema  | typed-result → `[]Record` conversion (`transactions.v1`, …)         |
-| embed   | `EmbeddingProvider` abstraction (OpenAI `text-embedding-3-small`)   |
-| backend | vector store (in-memory in v0, Milvus standalone in v1)             |
+| Layer       | Owns                                                                |
+| ----------- | ------------------------------------------------------------------- |
+| httpapi     | routing, JSON (un)marshal, status-code mapping                      |
+| indexer     | source → schema → embed → backend pipeline, with idempotency guard  |
+| source      | reads archived results (S3 in v0)                                   |
+| schema      | typed-result → `[]Record` conversion (`transactions.v1`, …)         |
+| embed       | `EmbeddingProvider` abstraction (OpenAI `text-embedding-3-large`)   |
+| cache       | embedding dedupe (memory LRU or DynamoDB behind the same interface) |
+| backend     | vector store (in-memory in v0, Milvus standalone in v1)             |
+| idempotency | pipeline-level dedupe on (job, uri, schema, model, dim, content)    |
 
 Kowloon never writes to the permanent bucket. Lady Glass owns the source of truth; Kowloon's index is rebuildable from it. Kowloon returns candidates; Lady Glass returns answers.
 
@@ -114,8 +116,7 @@ EC2 / NixOS
     vector backend
 ```
 
-The vector backend is selected by configuration. The first AWS deployment uses
-Milvus standalone on the same EC2 host, but Kowloon does not depend on Milvus as a concept.
+The vector backend is selected by configuration. The first AWS deployment uses Milvus standalone on the same EC2 host, but Kowloon does not depend on Milvus as a concept.
 
 Kowloon treats vector storage as an interface, not as an identity.
 
@@ -123,10 +124,19 @@ Kowloon treats vector storage as an interface, not as an identity.
 KOWLOON_ADDR=10.x.x.x:8080
 KOWLOON_BACKEND=milvus
 KOWLOON_VECTOR_ENDPOINT=127.0.0.1:19530
+KOWLOON_EMBEDDING_MODEL=text-embedding-3-large
 ```
 
-This keeps Lady Glass as the user-facing system, Kowloon as the private semantic
-memory service, and the vector backend as a rebuildable index backed by archived S3 results.
+Kowloon also owns two DynamoDB tables for cross-restart persistence — an embedding cache and an idempotency store, provisioned by the CDK stack in `infra/cdk/`.
+
+```
+KOWLOON_CACHE=dynamodb
+KOWLOON_EMBED_CACHE_TABLE=KowloonEmbeddingCache
+KOWLOON_IDEMPOTENCY=dynamodb
+KOWLOON_IDEMPOTENCY_TABLE=KowloonIdempotency
+```
+
+This keeps Lady Glass as the user-facing system, Kowloon as the private semantic memory service, and the vector backend as a rebuildable index backed by archived S3 results.
 
 ## Acknowledgments
 
