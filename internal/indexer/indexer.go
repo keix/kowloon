@@ -17,6 +17,7 @@ import (
 	"github.com/keix/kowloon"
 	"github.com/keix/kowloon/internal/backend"
 	"github.com/keix/kowloon/internal/embed"
+	"github.com/keix/kowloon/internal/idempotency"
 	"github.com/keix/kowloon/internal/schema"
 	"github.com/keix/kowloon/internal/source"
 )
@@ -26,6 +27,13 @@ type Indexer struct {
 	Schemas  map[string]schema.Schema
 	Embedder embed.Provider
 	Backend  backend.Index
+
+	// Idempotency dedupes full pipeline runs. Nil means "no
+	// idempotency layer" — every POST re-runs the pipeline
+	// (Milvus PK upsert still absorbs the write, but embed +
+	// upsert costs are paid). main.go wires this from
+	// KOWLOON_IDEMPOTENCY.
+	Idempotency idempotency.Store
 
 	// Now is the clock used for IndexedAt and IndexJobID. Tests
 	// override it to make outputs deterministic.
@@ -59,6 +67,21 @@ func (i *Indexer) IndexResult(ctx context.Context, req kowloon.IndexResultReques
 		return kowloon.IndexResultResponse{}, fmt.Errorf("source read %s: %w", req.ResultURI, err)
 	}
 
+	// Idempotency check happens after Source.Read (needed for
+	// ContentHash) but before schema.Convert — a duplicate POST
+	// skips convert, embed, and upsert entirely and returns the
+	// same response the first successful run produced.
+	var idemKey idempotency.Key
+	if i.Idempotency != nil {
+		idemKey = idempotency.MakeKey(req, i.Embedder.Model(), i.Embedder.Dim(), raw)
+		if prior, hit, err := i.Idempotency.Lookup(ctx, idemKey); err != nil {
+			return kowloon.IndexResultResponse{}, fmt.Errorf("idempotency lookup: %w", err)
+		} else if hit {
+			i.logIndexIdempotent(req, prior.VectorCount)
+			return prior, nil
+		}
+	}
+
 	records, err := sch.Convert(raw, req)
 	if err != nil {
 		return kowloon.IndexResultResponse{}, fmt.Errorf("schema convert: %w", err)
@@ -77,15 +100,17 @@ func (i *Indexer) IndexResult(ctx context.Context, req kowloon.IndexResultReques
 	indexJobID := fmt.Sprintf("kidx_%d", i.Now().UnixNano())
 
 	if len(records) == 0 {
-		i.logIndex(req, 0, 0)
-		return kowloon.IndexResultResponse{
+		resp := kowloon.IndexResultResponse{
 			Status:            "indexed",
 			KowloonCollection: collection,
 			IndexJobID:        indexJobID,
 			VectorCount:       0,
 			EmbeddingModel:    i.Embedder.Model(),
 			IndexedAt:         i.Now(),
-		}, nil
+		}
+		i.rememberIfEnabled(ctx, idemKey, resp)
+		i.logIndex(req, 0, 0, false)
+		return resp, nil
 	}
 
 	texts := make([]string, len(records))
@@ -104,25 +129,47 @@ func (i *Indexer) IndexResult(ctx context.Context, req kowloon.IndexResultReques
 		return kowloon.IndexResultResponse{}, fmt.Errorf("backend upsert: %w", err)
 	}
 
-	i.logIndex(req, len(records), embedded.CacheHits)
-
-	return kowloon.IndexResultResponse{
+	resp := kowloon.IndexResultResponse{
 		Status:            "indexed",
 		KowloonCollection: collection,
 		IndexJobID:        indexJobID,
 		VectorCount:       len(records),
 		EmbeddingModel:    i.Embedder.Model(),
 		IndexedAt:         i.Now(),
-	}, nil
+	}
+	i.rememberIfEnabled(ctx, idemKey, resp)
+	i.logIndex(req, len(records), embedded.CacheHits, false)
+	return resp, nil
+}
+
+// rememberIfEnabled writes the response to the idempotency store. Save
+// failures are logged but do not fail the request — the index itself
+// already succeeded; missing the idempotency entry only means the
+// next duplicate will re-run the pipeline.
+func (i *Indexer) rememberIfEnabled(ctx context.Context, key idempotency.Key, resp kowloon.IndexResultResponse) {
+	if i.Idempotency == nil {
+		return
+	}
+	if err := i.Idempotency.Save(ctx, key, resp); err != nil {
+		log.Printf("idempotency save failed: %v", err)
+	}
 }
 
 // logIndex emits the structured line the operator watches for cost /
 // cache visibility. embedded = records-cached: without a cache wrap
 // the provider reports 0 hits so embedded==records, which is the
 // right semantic for "no cache in the chain".
-func (i *Indexer) logIndex(req kowloon.IndexResultRequest, records, cached int) {
-	log.Printf("index_result job_id=%s result_uri=%s records=%d embedded=%d cached=%d model=%s dimensions=%d",
-		req.JobID, req.ResultURI, records, records-cached, cached, i.Embedder.Model(), i.Embedder.Dim())
+func (i *Indexer) logIndex(req kowloon.IndexResultRequest, records, cached int, idempotent bool) {
+	log.Printf("index_result job_id=%s result_uri=%s records=%d embedded=%d cached=%d model=%s dimensions=%d idempotent=%v",
+		req.JobID, req.ResultURI, records, records-cached, cached, i.Embedder.Model(), i.Embedder.Dim(), idempotent)
+}
+
+// logIndexIdempotent is the log for an idempotency-hit path: no work
+// was done, so embedded and cached are both zero and records reports
+// the prior VectorCount for correlation.
+func (i *Indexer) logIndexIdempotent(req kowloon.IndexResultRequest, priorVectorCount int) {
+	log.Printf("index_result job_id=%s result_uri=%s records=%d embedded=0 cached=0 model=%s dimensions=%d idempotent=true",
+		req.JobID, req.ResultURI, priorVectorCount, i.Embedder.Model(), i.Embedder.Dim())
 }
 
 func (i *Indexer) Search(ctx context.Context, req kowloon.SearchRequest) (kowloon.SearchResponse, error) {

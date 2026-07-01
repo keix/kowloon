@@ -31,6 +31,8 @@ import (
 	cachememory "github.com/keix/kowloon/internal/embed/cache/memory"
 	"github.com/keix/kowloon/internal/embed/openai"
 	"github.com/keix/kowloon/internal/httpapi"
+	"github.com/keix/kowloon/internal/idempotency"
+	idempotencymemory "github.com/keix/kowloon/internal/idempotency/memory"
 	"github.com/keix/kowloon/internal/indexer"
 	"github.com/keix/kowloon/internal/schema"
 	"github.com/keix/kowloon/internal/schema/transactions"
@@ -79,8 +81,20 @@ func main() {
 	}
 	ix := indexer.New(src, schemas, embedder, be)
 
+	idemKind := envOr("KOWLOON_IDEMPOTENCY", "memory")
+	switch idemKind {
+	case "memory":
+		var store idempotency.Store = idempotencymemory.New()
+		ix.Idempotency = store
+	case "none":
+		// no idempotency layer
+	default:
+		log.Fatalf("unknown KOWLOON_IDEMPOTENCY=%q (want memory|none)", idemKind)
+	}
+
 	server := httpapi.NewServer(ix)
-	log.Printf("kowloon-api listening on %s (backend=%s, model=%s, cache=%s)", addr, backendKind, embedder.Model(), cacheKind)
+	log.Printf("kowloon-api listening on %s (backend=%s, model=%s, cache=%s, idempotency=%s)",
+		addr, backendKind, embedder.Model(), cacheKind, idemKind)
 	if err := http.ListenAndServe(addr, server.Routes()); err != nil {
 		log.Fatal(err)
 	}
