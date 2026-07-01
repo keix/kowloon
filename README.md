@@ -65,7 +65,7 @@ flowchart LR
 | schema      | typed-result → `[]Record` conversion (`transactions.v1`, …)         |
 | embed       | `EmbeddingProvider` abstraction (OpenAI `text-embedding-3-large`)   |
 | cache       | embedding dedupe (memory LRU or DynamoDB behind the same interface) |
-| backend     | vector store (in-memory in v0, Milvus standalone in v1)             |
+| backend     | vector store (in-memory, Qdrant, or Milvus behind the same interface) |
 | idempotency | pipeline-level dedupe on (job, uri, schema, model, dim, content)    |
 
 Kowloon never writes to the permanent bucket. Lady Glass owns the source of truth; Kowloon's index is rebuildable from it. Kowloon returns candidates; Lady Glass returns answers.
@@ -116,14 +116,15 @@ EC2 / NixOS
     vector backend
 ```
 
-The vector backend is selected by configuration. The first AWS deployment uses Milvus standalone on the same EC2 host, but Kowloon does not depend on Milvus as a concept.
+The vector backend is selected by configuration. The primary AWS deployment uses Qdrant Cloud; a self-hosted Qdrant server also runs via `docker-compose.local.yml` for the integration loop. Milvus stays available as an alternative implementation behind the same interface.
 
 Kowloon treats vector storage as an interface, not as an identity.
 
 ```
 KOWLOON_ADDR=10.x.x.x:8080
-KOWLOON_BACKEND=milvus
-KOWLOON_VECTOR_ENDPOINT=127.0.0.1:19530
+KOWLOON_BACKEND=qdrant
+KOWLOON_VECTOR_ENDPOINT=https://xxxx.cloud.qdrant.io:6333
+KOWLOON_VECTOR_API_KEY=...
 KOWLOON_EMBEDDING_MODEL=text-embedding-3-large
 ```
 
