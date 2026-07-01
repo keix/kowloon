@@ -193,11 +193,13 @@ func TestSearch_BuildsFilterAndParsesResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Assert request body carried the filter conditions.
+	// Assert request body carried the filter conditions and the
+	// query-time HNSW ef override.
 	var req struct {
 		Query  []float32      `json:"query"`
 		Limit  int            `json:"limit"`
 		Filter map[string]any `json:"filter"`
+		Params map[string]any `json:"params"`
 	}
 	if err := json.Unmarshal([]byte(f.lastBody), &req); err != nil {
 		t.Fatalf("decode last body: %v", err)
@@ -211,6 +213,9 @@ func TestSearch_BuildsFilterAndParsesResponse(t *testing.T) {
 	must, ok := req.Filter["must"].([]any)
 	if !ok || len(must) != 3 {
 		t.Fatalf("filter.must len=%d, want 3 (record_type + 2 filters)", len(must))
+	}
+	if ef, ok := req.Params["hnsw_ef"].(float64); !ok || int(ef) != defaultSearchHNSWEF {
+		t.Errorf("params.hnsw_ef=%v, want %d", req.Params["hnsw_ef"], defaultSearchHNSWEF)
 	}
 
 	// Assert response was parsed back into Kowloon shape.

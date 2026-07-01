@@ -26,6 +26,14 @@ import (
 	"github.com/keix/kowloon"
 )
 
+// defaultSearchHNSWEF is the query-time HNSW ef value. Higher than
+// Qdrant's default (128) — pays a few tens of milliseconds per query
+// for wider graph exploration, which is worthwhile at Kowloon's scale
+// because the corpus is small and the top-K clusters are extremely
+// tight (0.001 apart on cosine). Making it lower risks missing the
+// true nearest neighbours to a very short Japanese query.
+const defaultSearchHNSWEF = 256
+
 // indexedFields are the payload keys promoted to keyword-indexed
 // columns so filter expressions are fast. Everything else in the
 // record's metadata is still stored on the payload and filterable —
@@ -220,6 +228,7 @@ func (b *Backend) Search(ctx context.Context, query kowloon.SearchRequest, vecto
 		"query":        vector,
 		"limit":        topK,
 		"with_payload": true,
+		"params":       map[string]any{"hnsw_ef": defaultSearchHNSWEF},
 	}
 	if f := buildFilter(query); f != nil {
 		body["filter"] = f
