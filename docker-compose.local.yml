@@ -1,79 +1,26 @@
-# Local connection test for the Milvus backend adapter. Application logic
-# loops on the in-memory backend (Index interface) and does not need this
-# stack — bring it up only when verifying that the milvus adapter actually
-# talks to Milvus (schema creation, upsert, ANN query).
+# Local connection test for the Qdrant backend adapter. Application
+# logic loops on the in-memory backend (Index interface) and does not
+# need this stack — bring it up only when verifying that the qdrant
+# adapter actually talks to Qdrant (collection creation, upsert,
+# filter, query).
 #
-# SeaweedFS replaces upstream MinIO: Apache-2.0 instead of AGPLv3, and the
-# 2025 OSS direction at MinIO makes it a less pleasant default. The S3 port
-# is mapped to 9000 so Milvus's MINIO_* env vars stay at stock values.
-# Milvus is bound to 127.0.0.1:19530 to match the production network shape.
+# Production Kowloon points at Qdrant Cloud via KOWLOON_VECTOR_ENDPOINT;
+# this compose stands up the same server locally on 127.0.0.1:6333 with
+# no authentication (matches the "no api-key needed on local" path).
 #
-# SeaweedFS demands `-s3.config` to validate signed v4 requests — Milvus
-# always signs — so the inline IAM config below registers the
-# minioadmin/minioadmin pair Milvus sends by default. Without it Milvus
-# panics on the first segment flush with "Signed request requires setting
-# up SeaweedFS S3 authentication".
+# The milvus adapter (internal/backend/milvus) is still available and
+# tested — Kowloon commits to the Index interface, not to Qdrant. If a
+# future workflow wants Milvus locally, revive the previous compose
+# from git history (etcd + seaweedfs + milvus standalone) rather than
+# stacking three services here.
 
 services:
-  etcd:
-    image: quay.io/coreos/etcd:v3.5.5
-    environment:
-      ETCD_AUTO_COMPACTION_MODE: revision
-      ETCD_AUTO_COMPACTION_RETENTION: "1000"
-      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
-      ETCD_SNAPSHOT_COUNT: "50000"
-    volumes:
-      - etcd-data:/etcd
-    command:
-      - etcd
-      - -advertise-client-urls=http://etcd:2379
-      - -listen-client-urls=http://0.0.0.0:2379
-      - --data-dir=/etcd
-
-  seaweedfs:
-    image: chrislusf/seaweedfs:3.71
-    command:
-      - server
-      - -s3
-      - -s3.port=9000
-      - -s3.config=/etc/seaweedfs/s3.json
-      - -dir=/data
-    volumes:
-      - seaweedfs-data:/data
-    configs:
-      - source: seaweedfs_iam
-        target: /etc/seaweedfs/s3.json
-
-  milvus:
-    image: milvusdb/milvus:v2.4.10
-    command: ["milvus", "run", "standalone"]
-    environment:
-      ETCD_ENDPOINTS: etcd:2379
-      MINIO_ADDRESS: seaweedfs:9000
-    volumes:
-      - milvus-data:/var/lib/milvus
+  qdrant:
+    image: qdrant/qdrant:v1.13.0
     ports:
-      - "127.0.0.1:19530:19530"
-    depends_on:
-      - etcd
-      - seaweedfs
+      - "127.0.0.1:6333:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
 
 volumes:
-  etcd-data:
-  seaweedfs-data:
-  milvus-data:
-
-configs:
-  seaweedfs_iam:
-    content: |
-      {
-        "identities": [
-          {
-            "name": "milvus",
-            "credentials": [
-              {"accessKey": "minioadmin", "secretKey": "minioadmin"}
-            ],
-            "actions": ["Admin"]
-          }
-        ]
-      }
+  qdrant-data:
