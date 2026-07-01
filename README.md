@@ -127,3 +127,12 @@ KOWLOON_VECTOR_ENDPOINT=127.0.0.1:19530
 
 This keeps Lady Glass as the user-facing system, Kowloon as the private semantic
 memory service, and the vector backend as a rebuildable index backed by archived S3 results.
+
+## Acknowledgments
+
+Kowloon is the distant landscape of memory she shared with me.
+
+## License
+
+Kowloon is licensed under the MIT License.  
+Copyright (c) 2026 Kei Sawamura a.k.a. Master *void  
