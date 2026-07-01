@@ -24,8 +24,11 @@ import (
 	mclient "github.com/milvus-io/milvus-sdk-go/v2/client"
 
 	"github.com/keix/kowloon/internal/backend"
-	"github.com/keix/kowloon/internal/backend/memory"
+	backendmemory "github.com/keix/kowloon/internal/backend/memory"
 	"github.com/keix/kowloon/internal/backend/milvus"
+	"github.com/keix/kowloon/internal/embed"
+	embedcache "github.com/keix/kowloon/internal/embed/cache"
+	cachememory "github.com/keix/kowloon/internal/embed/cache/memory"
 	"github.com/keix/kowloon/internal/embed/openai"
 	"github.com/keix/kowloon/internal/httpapi"
 	"github.com/keix/kowloon/internal/indexer"
@@ -43,10 +46,20 @@ func main() {
 		log.Fatal("OPENAI_API_KEY is required")
 	}
 
-	embedder := openai.New(openai.Config{
+	var embedder embed.Provider = openai.New(openai.Config{
 		APIKey: apiKey,
 		Model:  envOr("KOWLOON_EMBEDDING_MODEL", openai.DefaultModel),
 	})
+
+	cacheKind := envOr("KOWLOON_CACHE", "memory")
+	switch cacheKind {
+	case "memory":
+		embedder = embedcache.Wrap(embedder, cachememory.New(cachememory.DefaultCapacity))
+	case "none":
+		// no wrap
+	default:
+		log.Fatalf("unknown KOWLOON_CACHE=%q (want memory|none)", cacheKind)
+	}
 
 	ctx := context.Background()
 
@@ -67,7 +80,7 @@ func main() {
 	ix := indexer.New(src, schemas, embedder, be)
 
 	server := httpapi.NewServer(ix)
-	log.Printf("kowloon-api listening on %s (backend=%s, model=%s)", addr, backendKind, embedder.Model())
+	log.Printf("kowloon-api listening on %s (backend=%s, model=%s, cache=%s)", addr, backendKind, embedder.Model(), cacheKind)
 	if err := http.ListenAndServe(addr, server.Routes()); err != nil {
 		log.Fatal(err)
 	}
@@ -76,7 +89,7 @@ func main() {
 func buildBackend(ctx context.Context, kind string, dim int) (backend.Index, error) {
 	switch kind {
 	case "memory":
-		return memory.New(), nil
+		return backendmemory.New(), nil
 	case "milvus":
 		endpoint := envOr("MILVUS_ENDPOINT", "127.0.0.1:19530")
 		c, err := mclient.NewClient(ctx, mclient.Config{Address: endpoint})

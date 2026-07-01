@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -76,6 +77,7 @@ func (i *Indexer) IndexResult(ctx context.Context, req kowloon.IndexResultReques
 	indexJobID := fmt.Sprintf("kidx_%d", i.Now().UnixNano())
 
 	if len(records) == 0 {
+		i.logIndex(req, 0, 0)
 		return kowloon.IndexResultResponse{
 			Status:            "indexed",
 			KowloonCollection: collection,
@@ -102,6 +104,8 @@ func (i *Indexer) IndexResult(ctx context.Context, req kowloon.IndexResultReques
 		return kowloon.IndexResultResponse{}, fmt.Errorf("backend upsert: %w", err)
 	}
 
+	i.logIndex(req, len(records), embedded.CacheHits)
+
 	return kowloon.IndexResultResponse{
 		Status:            "indexed",
 		KowloonCollection: collection,
@@ -110,6 +114,15 @@ func (i *Indexer) IndexResult(ctx context.Context, req kowloon.IndexResultReques
 		EmbeddingModel:    i.Embedder.Model(),
 		IndexedAt:         i.Now(),
 	}, nil
+}
+
+// logIndex emits the structured line the operator watches for cost /
+// cache visibility. embedded = records-cached: without a cache wrap
+// the provider reports 0 hits so embedded==records, which is the
+// right semantic for "no cache in the chain".
+func (i *Indexer) logIndex(req kowloon.IndexResultRequest, records, cached int) {
+	log.Printf("index_result job_id=%s result_uri=%s records=%d embedded=%d cached=%d model=%s dimensions=%d",
+		req.JobID, req.ResultURI, records, records-cached, cached, i.Embedder.Model(), i.Embedder.Dim())
 }
 
 func (i *Indexer) Search(ctx context.Context, req kowloon.SearchRequest) (kowloon.SearchResponse, error) {
