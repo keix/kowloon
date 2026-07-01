@@ -7,10 +7,22 @@ package embed
 
 import "context"
 
+// Result is what Embed returns. Vectors carries one entry per input
+// text in input order. CacheHits and CacheMisses are populated by a
+// caching wrapper in front of the raw provider (see
+// internal/embed/cache); raw providers return them as zero. The
+// indexer's structured log reads them to distinguish freshly embedded
+// records from cache-served ones.
+type Result struct {
+	Vectors     [][]float32
+	CacheHits   int
+	CacheMisses int
+}
+
 type Provider interface {
-	// Embed returns one vector per input text, in input order. All
-	// vectors share the same dimensionality (Dim).
-	Embed(ctx context.Context, texts []string) ([][]float32, error)
+	// Embed returns Result.Vectors in input order (len(Vectors) ==
+	// len(texts)).
+	Embed(ctx context.Context, texts []string) (Result, error)
 
 	// Model returns the embedding model identifier (e.g.
 	// "text-embedding-3-small"). It is recorded on

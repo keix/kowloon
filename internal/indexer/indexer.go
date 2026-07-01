@@ -90,15 +90,15 @@ func (i *Indexer) IndexResult(ctx context.Context, req kowloon.IndexResultReques
 	for idx, r := range records {
 		texts[idx] = r.Text
 	}
-	vectors, err := i.Embedder.Embed(ctx, texts)
+	embedded, err := i.Embedder.Embed(ctx, texts)
 	if err != nil {
 		return kowloon.IndexResultResponse{}, fmt.Errorf("embed: %w", err)
 	}
-	if len(vectors) != len(records) {
-		return kowloon.IndexResultResponse{}, fmt.Errorf("embed: got %d vectors for %d records", len(vectors), len(records))
+	if len(embedded.Vectors) != len(records) {
+		return kowloon.IndexResultResponse{}, fmt.Errorf("embed: got %d vectors for %d records", len(embedded.Vectors), len(records))
 	}
 
-	if err := i.Backend.Upsert(ctx, records, vectors); err != nil {
+	if err := i.Backend.Upsert(ctx, records, embedded.Vectors); err != nil {
 		return kowloon.IndexResultResponse{}, fmt.Errorf("backend upsert: %w", err)
 	}
 
@@ -113,15 +113,15 @@ func (i *Indexer) IndexResult(ctx context.Context, req kowloon.IndexResultReques
 }
 
 func (i *Indexer) Search(ctx context.Context, req kowloon.SearchRequest) (kowloon.SearchResponse, error) {
-	vectors, err := i.Embedder.Embed(ctx, []string{req.Text})
+	embedded, err := i.Embedder.Embed(ctx, []string{req.Text})
 	if err != nil {
 		return kowloon.SearchResponse{}, fmt.Errorf("embed query: %w", err)
 	}
-	if len(vectors) == 0 {
+	if len(embedded.Vectors) == 0 {
 		return kowloon.SearchResponse{}, errors.New("embed returned no vectors")
 	}
 
-	matches, err := i.Backend.Search(ctx, req, vectors[0])
+	matches, err := i.Backend.Search(ctx, req, embedded.Vectors[0])
 	if err != nil {
 		return kowloon.SearchResponse{}, fmt.Errorf("backend search: %w", err)
 	}

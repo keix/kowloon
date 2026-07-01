@@ -37,15 +37,19 @@ func TestEmbed_Happy_ReordersByIndex(t *testing.T) {
 	defer server.Close()
 
 	p := New(Config{APIKey: "test-key", Endpoint: server.URL})
-	vecs, err := p.Embed(context.Background(), []string{"a", "b"})
+	result, err := p.Embed(context.Background(), []string{"a", "b"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(vecs) != 2 {
-		t.Fatalf("vecs=%d", len(vecs))
+	if len(result.Vectors) != 2 {
+		t.Fatalf("vecs=%d", len(result.Vectors))
 	}
-	if vecs[0][0] != 0.1 || vecs[1][0] != 0.2 {
-		t.Errorf("order not restored: %v", vecs)
+	if result.Vectors[0][0] != 0.1 || result.Vectors[1][0] != 0.2 {
+		t.Errorf("order not restored: %v", result.Vectors)
+	}
+	if result.CacheHits != 0 || result.CacheMisses != 0 {
+		t.Errorf("raw provider should not report cache stats: hits=%d misses=%d",
+			result.CacheHits, result.CacheMisses)
 	}
 }
 
@@ -86,12 +90,12 @@ func TestEmbed_CountMismatch(t *testing.T) {
 
 func TestEmbed_Empty(t *testing.T) {
 	p := New(Config{APIKey: "k", Endpoint: "http://does-not-matter"})
-	vecs, err := p.Embed(context.Background(), nil)
+	result, err := p.Embed(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if vecs != nil {
-		t.Errorf("vecs=%v, want nil", vecs)
+	if result.Vectors != nil {
+		t.Errorf("vecs=%v, want nil", result.Vectors)
 	}
 }
 

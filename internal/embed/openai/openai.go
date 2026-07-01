@@ -115,48 +115,48 @@ type errorResponse struct {
 	} `json:"error"`
 }
 
-func (p *Provider) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+func (p *Provider) Embed(ctx context.Context, texts []string) (embed.Result, error) {
 	if len(texts) == 0 {
-		return nil, nil
+		return embed.Result{}, nil
 	}
 
 	body, err := json.Marshal(request{Input: texts, Model: p.model})
 	if err != nil {
-		return nil, fmt.Errorf("openai embed: marshal: %w", err)
+		return embed.Result{}, fmt.Errorf("openai embed: marshal: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.endpoint, bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("openai embed: request: %w", err)
+		return embed.Result{}, fmt.Errorf("openai embed: request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+p.apiKey)
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("openai embed: %w", err)
+		return embed.Result{}, fmt.Errorf("openai embed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	payload, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("openai embed: read body: %w", err)
+		return embed.Result{}, fmt.Errorf("openai embed: read body: %w", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var er errorResponse
 		if jsonErr := json.Unmarshal(payload, &er); jsonErr == nil && er.Error.Message != "" {
-			return nil, fmt.Errorf("openai embed: %s: %s", resp.Status, er.Error.Message)
+			return embed.Result{}, fmt.Errorf("openai embed: %s: %s", resp.Status, er.Error.Message)
 		}
-		return nil, fmt.Errorf("openai embed: %s: %s", resp.Status, string(payload))
+		return embed.Result{}, fmt.Errorf("openai embed: %s: %s", resp.Status, string(payload))
 	}
 
 	var out response
 	if err := json.Unmarshal(payload, &out); err != nil {
-		return nil, fmt.Errorf("openai embed: decode response: %w", err)
+		return embed.Result{}, fmt.Errorf("openai embed: decode response: %w", err)
 	}
 	if len(out.Data) != len(texts) {
-		return nil, fmt.Errorf("openai embed: got %d embeddings for %d inputs", len(out.Data), len(texts))
+		return embed.Result{}, fmt.Errorf("openai embed: got %d embeddings for %d inputs", len(out.Data), len(texts))
 	}
 
 	// OpenAI's response is conventionally in-order, but the index field
@@ -165,17 +165,17 @@ func (p *Provider) Embed(ctx context.Context, texts []string) ([][]float32, erro
 	vectors := make([][]float32, len(texts))
 	for _, d := range out.Data {
 		if d.Index < 0 || d.Index >= len(texts) {
-			return nil, fmt.Errorf("openai embed: out-of-range index %d", d.Index)
+			return embed.Result{}, fmt.Errorf("openai embed: out-of-range index %d", d.Index)
 		}
 		if vectors[d.Index] != nil {
-			return nil, fmt.Errorf("openai embed: duplicate index %d", d.Index)
+			return embed.Result{}, fmt.Errorf("openai embed: duplicate index %d", d.Index)
 		}
 		vectors[d.Index] = d.Embedding
 	}
 	for i, v := range vectors {
 		if v == nil {
-			return nil, fmt.Errorf("openai embed: missing embedding for index %d", i)
+			return embed.Result{}, fmt.Errorf("openai embed: missing embedding for index %d", i)
 		}
 	}
-	return vectors, nil
+	return embed.Result{Vectors: vectors}, nil
 }

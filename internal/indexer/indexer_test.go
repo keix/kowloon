@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/keix/kowloon"
+	"github.com/keix/kowloon/internal/embed"
 	"github.com/keix/kowloon/internal/schema"
 )
 
@@ -55,9 +56,9 @@ type fakeEmbedder struct {
 	err   error
 }
 
-func (f *fakeEmbedder) Embed(_ context.Context, texts []string) ([][]float32, error) {
+func (f *fakeEmbedder) Embed(_ context.Context, texts []string) (embed.Result, error) {
 	if f.err != nil {
-		return nil, f.err
+		return embed.Result{}, f.err
 	}
 	f.calls = append(f.calls, append([]string(nil), texts...))
 	out := make([][]float32, len(texts))
@@ -68,7 +69,7 @@ func (f *fakeEmbedder) Embed(_ context.Context, texts []string) ([][]float32, er
 		}
 		out[i] = v
 	}
-	return out, nil
+	return embed.Result{Vectors: out}, nil
 }
 
 func (f *fakeEmbedder) Model() string { return "fake-test" }
