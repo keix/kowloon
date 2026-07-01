@@ -24,7 +24,7 @@ flowchart LR
     Admin([admin / debug])
 
     subgraph K["Kowloon"]
-        direction TB
+        direction LR
 
         API[httpapi]
         IDX[indexer]
