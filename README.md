@@ -11,17 +11,17 @@ Kowloon is the landscape of her memory.
 
 ## Architecture
 
-Kowloon is called from Lady Glass as an explicit stage, not as a notification side-effect.
+Kowloon exposes a private HTTP API. Two paths on the Lady Glass side use it.
 
-On the write side, the chain archives its result to a permanent S3 prefix and then hands Kowloon a URI to that archive; Kowloon reads it, embeds, and indexes.
+On the write side, Lady Glass archives its enriched result to a permanent S3 prefix and then hands Kowloon a URI to that archive; Kowloon reads it, embeds, and indexes.
 
-On the read side, the user's query goes to Lady Glass's query API — Lady Glass calls Kowloon's search and resolve endpoints for candidates, then grounds the answer in the structured result on S3.
+On the read side, Lady Glass's query runtime calls Kowloon's search and resolve endpoints for candidates, then grounds the answer in the structured result on S3.
 
 ```mermaid
 flowchart LR
-    LG([Lady Glass chain])
-    LGQ([Lady Glass query API])
-    Admin([admin / debug])
+    LG1([Lady Glass workflow])
+    LG2([Lady Glass API])
+    CLI([Kowloon CLI])
 
     subgraph K["Kowloon"]
         direction LR
@@ -44,11 +44,11 @@ flowchart LR
     OAI([OpenAI Embeddings])
     VEC[(Vector backend)]
 
-    LG -->|archive-result stage| S3
-    LG -->|index-kowloon stage| API
-    LGQ -->|semantic candidates| API
-    LGQ -->|read normalized result| S3
-    Admin -.-> API
+    LG1 -->|archive| S3
+    LG1 -->|index| K
+    LG2 -->|search| K
+    LG2 -->|read| S3
+    CLI -.-> K
 
     SRC -. read result_uri .-> S3
     EMB -. embed text .-> OAI
@@ -82,7 +82,7 @@ DELETE /v1/jobs/{job_id}         delete every record indexed under a job
 GET    /healthz                  liveness probe
 ```
 
-`/v1/index-result` is the primary entry point — Lady Glass's `index-kowloon` stage calls it with the archived URI and Kowloon takes care of fetching, schema conversion, embedding, and upsert.
+`/v1/index-result` is the primary entry point — Lady Glass calls it once the enriched result is archived on S3, and Kowloon takes care of fetching, schema conversion, embedding, and upsert.
 
 `/v1/search` and `/v1/resolve/merchant` are the retrieval primitives Lady Glass calls during query composition; direct callers are admin or debug only. `DELETE /v1/jobs/{job_id}` is the re-index recovery handle, used when an embedding model swap requires dropping a batch.
 
@@ -90,12 +90,12 @@ GET    /healthz                  liveness probe
 
 Kowloon is designed to run as a long-lived process on AWS.
 
-In production, Kowloon embeds its own HTTP server and is managed by `systemd`. Lady Glass calls Kowloon over a private HTTP endpoint from the `index-kowloon` stage.
+In production, Kowloon embeds its own HTTP server and is managed by `systemd`. Lady Glass calls Kowloon over a private HTTP endpoint.
 
-Kowloon reads archived stage results from S3, converts them into records, embeds them, and writes them through a configured vector backend.
+Kowloon reads archived results from S3, converts them into records, embeds them, and writes them through a configured vector backend.
 
 ```text
-Lady Glass stage
+Lady Glass
   -> private HTTP
   -> Kowloon systemd service
   -> vector backend
