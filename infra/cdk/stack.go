@@ -47,8 +47,10 @@ func NewKowloonStack(scope constructs.Construct, id string, props *KowloonStackP
 			Name: jsii.String("cache_key"),
 			Type: awsdynamodb.AttributeType_STRING,
 		},
-		BillingMode:         awsdynamodb.BillingMode_PAY_PER_REQUEST,
-		PointInTimeRecovery: jsii.Bool(true),
+		BillingMode: awsdynamodb.BillingMode_PAY_PER_REQUEST,
+		PointInTimeRecoverySpecification: &awsdynamodb.PointInTimeRecoverySpecification{
+			PointInTimeRecoveryEnabled: jsii.Bool(true),
+		},
 		TimeToLiveAttribute: jsii.String("expires_at"),
 		RemovalPolicy:       awscdk.RemovalPolicy_RETAIN,
 	})
@@ -59,8 +61,10 @@ func NewKowloonStack(scope constructs.Construct, id string, props *KowloonStackP
 			Name: jsii.String("idempotency_key"),
 			Type: awsdynamodb.AttributeType_STRING,
 		},
-		BillingMode:         awsdynamodb.BillingMode_PAY_PER_REQUEST,
-		PointInTimeRecovery: jsii.Bool(true),
+		BillingMode: awsdynamodb.BillingMode_PAY_PER_REQUEST,
+		PointInTimeRecoverySpecification: &awsdynamodb.PointInTimeRecoverySpecification{
+			PointInTimeRecoveryEnabled: jsii.Bool(true),
+		},
 		TimeToLiveAttribute: jsii.String("expires_at"),
 		RemovalPolicy:       awscdk.RemovalPolicy_RETAIN,
 	})
