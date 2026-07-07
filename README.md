@@ -70,6 +70,8 @@ flowchart LR
 
 Kowloon never writes to the permanent bucket. Lady Glass owns the source of truth; Kowloon's index is rebuildable from it. Kowloon returns candidates; Lady Glass returns answers.
 
+What gets embedded versus what stays in filterable metadata is specified in [docs/embedding.md](docs/embedding.md).
+
 ## API
 
 Kowloon exposes five HTTP endpoints. v0 is unauthenticated and intended for private-network deployment only; an `X-Api-Key` header will be added before wider deploy. See [`types.go`](types.go) for the full request and response contract.

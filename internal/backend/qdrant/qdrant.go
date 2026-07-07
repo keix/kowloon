@@ -42,6 +42,7 @@ var indexedFields = []string{
 	"tenant_id",
 	"job_id",
 	"record_type",
+	"document_type",
 	"year_month",
 	"merchant",
 	"merchant_normalized",

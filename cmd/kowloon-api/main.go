@@ -13,6 +13,9 @@
 //	KOWLOON_EMBED_CACHE_TABLE    DDB table when cache=dynamodb
 //	KOWLOON_IDEMPOTENCY          memory | dynamodb | none  (default memory)
 //	KOWLOON_IDEMPOTENCY_TABLE    DDB table when idempotency=dynamodb
+//	KOWLOON_OIDC_ISSUER          OIDC issuer for bearer auth; unset = auth off
+//	KOWLOON_OIDC_JWKS_URL        JWKS URL (default <issuer>/jwks.json)
+//	KOWLOON_OIDC_AUDIENCE        expected "aud" claim (e.g. kowloon)
 //
 // /healthz is wired before any backend init so the deploy plumbing
 // stays observable even if the vector backend or OpenAI are unreachable.
@@ -128,9 +131,28 @@ func main() {
 	}
 
 	server := httpapi.NewServer(ix)
-	log.Printf("kowloon-api listening on %s (backend=%s, model=%s, cache=%s, idempotency=%s)",
-		addr, backendKind, embedder.Model(), cacheKind, idemKind)
-	if err := http.ListenAndServe(addr, server.Routes()); err != nil {
+
+	// Bearer auth is off unless KOWLOON_OIDC_ISSUER is set — the loopback
+	// deployment stays unauthenticated until an OIDC provider (Asteroid)
+	// is wired. When set, every route except /healthz requires a valid
+	// ES256 token from that issuer.
+	oidcIssuer := os.Getenv("KOWLOON_OIDC_ISSUER")
+	authMW, err := httpapi.NewBearerAuth(httpapi.OIDCConfig{
+		Issuer:   oidcIssuer,
+		JWKSURL:  os.Getenv("KOWLOON_OIDC_JWKS_URL"),
+		Audience: os.Getenv("KOWLOON_OIDC_AUDIENCE"),
+	})
+	if err != nil {
+		log.Fatalf("oidc auth: %v", err)
+	}
+	authState := "disabled"
+	if oidcIssuer != "" {
+		authState = "enabled"
+	}
+
+	log.Printf("kowloon-api listening on %s (backend=%s, model=%s, cache=%s, idempotency=%s, auth=%s)",
+		addr, backendKind, embedder.Model(), cacheKind, idemKind, authState)
+	if err := http.ListenAndServe(addr, authMW(server.Routes())); err != nil {
 		log.Fatal(err)
 	}
 }
