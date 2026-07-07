@@ -30,7 +30,7 @@ func resp(kidx string, count int) kowloon.IndexResultResponse {
 
 func TestLookupMiss(t *testing.T) {
 	s := New()
-	k := idempotency.MakeKey(req(), "m", 128, []byte("x"))
+	k := idempotency.MakeKey(req(), "rev", "m", 128, []byte("x"))
 	_, ok, err := s.Lookup(context.Background(), k)
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ func TestLookupMiss(t *testing.T) {
 func TestSaveLookup(t *testing.T) {
 	s := New()
 	ctx := context.Background()
-	k := idempotency.MakeKey(req(), "m", 128, []byte("x"))
+	k := idempotency.MakeKey(req(), "rev", "m", 128, []byte("x"))
 	r := resp("kidx_1", 33)
 
 	if err := s.Save(ctx, k, r); err != nil {
@@ -64,7 +64,7 @@ func TestSaveLookup(t *testing.T) {
 func TestSaveOverwrite(t *testing.T) {
 	s := New()
 	ctx := context.Background()
-	k := idempotency.MakeKey(req(), "m", 128, []byte("x"))
+	k := idempotency.MakeKey(req(), "rev", "m", 128, []byte("x"))
 
 	_ = s.Save(ctx, k, resp("kidx_a", 10))
 	_ = s.Save(ctx, k, resp("kidx_b", 20))
@@ -82,8 +82,8 @@ func TestDifferentKeysIsolated(t *testing.T) {
 	s := New()
 	ctx := context.Background()
 
-	k1 := idempotency.MakeKey(req(), "m", 128, []byte("a"))
-	k2 := idempotency.MakeKey(req(), "m", 128, []byte("b"))
+	k1 := idempotency.MakeKey(req(), "rev", "m", 128, []byte("a"))
+	k2 := idempotency.MakeKey(req(), "rev", "m", 128, []byte("b"))
 
 	_ = s.Save(ctx, k1, resp("kidx_a", 10))
 	_ = s.Save(ctx, k2, resp("kidx_b", 20))

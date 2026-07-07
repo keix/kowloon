@@ -73,7 +73,7 @@ func (i *Indexer) IndexResult(ctx context.Context, req kowloon.IndexResultReques
 	// same response the first successful run produced.
 	var idemKey idempotency.Key
 	if i.Idempotency != nil {
-		idemKey = idempotency.MakeKey(req, i.Embedder.Model(), i.Embedder.Dim(), raw)
+		idemKey = idempotency.MakeKey(req, sch.Revision(), i.Embedder.Model(), i.Embedder.Dim(), raw)
 		if prior, hit, err := i.Idempotency.Lookup(ctx, idemKey); err != nil {
 			return kowloon.IndexResultResponse{}, fmt.Errorf("idempotency lookup: %w", err)
 		} else if hit {

@@ -32,6 +32,8 @@ func (f *fakeSource) Read(_ context.Context, uri string) ([]byte, error) {
 
 type fakeSchema struct{}
 
+func (fakeSchema) Revision() string { return "test" }
+
 func (fakeSchema) Convert(raw []byte, req kowloon.IndexResultRequest) ([]kowloon.Record, error) {
 	var texts []string
 	if err := json.Unmarshal(raw, &texts); err != nil {

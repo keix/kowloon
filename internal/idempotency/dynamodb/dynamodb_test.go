@@ -65,7 +65,7 @@ func resp() kowloon.IndexResultResponse {
 
 func TestLookup_Miss(t *testing.T) {
 	s := New(Config{Client: newFakeClient(), TableName: "T"})
-	k := idempotency.MakeKey(req(), "m", 128, []byte("x"))
+	k := idempotency.MakeKey(req(), "rev", "m", 128, []byte("x"))
 	_, ok, err := s.Lookup(context.Background(), k)
 	if err != nil {
 		t.Fatal(err)
@@ -80,7 +80,7 @@ func TestSave_Lookup_Roundtrip(t *testing.T) {
 	s := New(Config{Client: fc, TableName: "T"})
 	ctx := context.Background()
 
-	k := idempotency.MakeKey(req(), "m", 128, []byte("x"))
+	k := idempotency.MakeKey(req(), "rev", "m", 128, []byte("x"))
 	want := resp()
 
 	if err := s.Save(ctx, k, want); err != nil {
@@ -106,7 +106,7 @@ func TestSave_TTLAttributePresent(t *testing.T) {
 	s := New(Config{Client: fc, TableName: "T", TTL: 30 * 24 * time.Hour})
 	ctx := context.Background()
 
-	k := idempotency.MakeKey(req(), "m", 128, []byte("x"))
+	k := idempotency.MakeKey(req(), "rev", "m", 128, []byte("x"))
 	if err := s.Save(ctx, k, resp()); err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestSave_NoTTLWhenUnset(t *testing.T) {
 	s := New(Config{Client: fc, TableName: "T"})
 	ctx := context.Background()
 
-	k := idempotency.MakeKey(req(), "m", 128, []byte("x"))
+	k := idempotency.MakeKey(req(), "rev", "m", 128, []byte("x"))
 	if err := s.Save(ctx, k, resp()); err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestLookup_ErrorPropagates(t *testing.T) {
 	fc.getErr = errors.New("throttled")
 	s := New(Config{Client: fc, TableName: "T"})
 
-	_, _, err := s.Lookup(context.Background(), idempotency.MakeKey(req(), "m", 128, []byte("x")))
+	_, _, err := s.Lookup(context.Background(), idempotency.MakeKey(req(), "rev", "m", 128, []byte("x")))
 	if err == nil {
 		t.Fatal("want error")
 	}
@@ -147,7 +147,7 @@ func TestSave_ErrorPropagates(t *testing.T) {
 	fc.putErr = errors.New("throttled")
 	s := New(Config{Client: fc, TableName: "T"})
 
-	err := s.Save(context.Background(), idempotency.MakeKey(req(), "m", 128, []byte("x")), resp())
+	err := s.Save(context.Background(), idempotency.MakeKey(req(), "rev", "m", 128, []byte("x")), resp())
 	if err == nil {
 		t.Fatal("want error")
 	}
