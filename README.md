@@ -74,7 +74,7 @@ What gets embedded versus what stays in filterable metadata is specified in [doc
 
 ## API
 
-Kowloon exposes five HTTP endpoints. v0 is unauthenticated and intended for private-network deployment only; an `X-Api-Key` header will be added before wider deploy. See [`types.go`](types.go) for the full request and response contract.
+Kowloon exposes five HTTP endpoints. Every route except `/healthz` can require an OIDC bearer token — an ES256 access token verified against the issuer's JWKS — enabled by setting `KOWLOON_OIDC_ISSUER`; with it unset Kowloon runs unauthenticated, which suits a loopback or dev deployment. Lady Glass authenticates with an Asteroid `client_credentials` token whose `aud` matches `KOWLOON_OIDC_AUDIENCE`. See [`types.go`](types.go) for the full request and response contract.
 
 ```text
 POST   /v1/index-result          ingest an archived S3 result; returns the indexed count
@@ -137,6 +137,14 @@ KOWLOON_CACHE=dynamodb
 KOWLOON_EMBED_CACHE_TABLE=KowloonEmbeddingCache
 KOWLOON_IDEMPOTENCY=dynamodb
 KOWLOON_IDEMPOTENCY_TABLE=KowloonIdempotency
+```
+
+Bearer auth is off until an OIDC issuer is configured. Setting these turns on ES256 token verification on every route but `/healthz`; the JWKS URL defaults to `<issuer>/jwks.json`.
+
+```
+KOWLOON_OIDC_ISSUER=https://seven-swords.net
+KOWLOON_OIDC_AUDIENCE=kowloon
+# KOWLOON_OIDC_JWKS_URL=   (optional; defaults to <issuer>/jwks.json)
 ```
 
 This keeps Lady Glass as the user-facing system, Kowloon as the private semantic memory service, and the vector backend as a rebuildable index backed by archived S3 results.
